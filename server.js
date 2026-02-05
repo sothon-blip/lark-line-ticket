@@ -36,48 +36,40 @@ app.post('/lark/webhook', async (req, res) => {
   console.log('\n📨 LARK WEBHOOK RECEIVED');
   console.log(JSON.stringify(body, null, 2));
 
-  // ===== ดึงข้อมูลจาก Lark =====
+  // ===== ดึงข้อมูลจาก Lark (JSON แบบใหม่ แยก field) =====
   const {
     ticket_id,
+    ticketDate,
     title,
+    symptom,
     branch,
+    branch_code,
     phone,
     status
   } = body || {};
 
-  // ===== แยกข้อมูล (ตาม format เดิมของคุณ) =====
-  // ticket_id: Ticket-046/2026/02/05 14:23
-  const ticketId = ticket_id?.split('/')[0] || '-';
-  const ticketDate = ticket_id?.split('/').slice(1).join('/') || '-';
-
-  // title: อินเตอร์เน็ต/ทดสอบอาการ
-  const [mainTitle, symptom] = title?.split('/') || ['-', '-'];
-
-  // branch: ABP/0002
-  const [branchName, branchCode] = branch?.split('/') || ['-', '-'];
-
   // ===== LOG ใน server =====
   console.log('\n🎫 NEW TICKET');
-  console.log(`🆔 Ticket ID : ${ticketId}`);
-  console.log(`📅 Date      : ${ticketDate}`);
-  console.log(`📌 Title     : ${mainTitle}`);
-  console.log(`⚙️ Symptom   : ${symptom}`);
-  console.log(`🏬 Branch    : ${branchName}`);
-  console.log(`🏷️ Code      : ${branchCode}`);
+  console.log(`🆔 Ticket ID : ${ticket_id || '-'}`);
+  console.log(`📅 Date      : ${ticketDate || '-'}`);
+  console.log(`📌 Title     : ${title || '-'}`);
+  console.log(`⚙️ Symptom   : ${symptom || '-'}`);
+  console.log(`🏬 Branch    : ${branch || '-'}`);
+  console.log(`🏷️ Code      : ${branch_code || '-'}`);
   console.log(`📞 Phone     : ${phone || '-'}`);
   console.log(`📊 Status    : ${status || '-'}`);
   console.log('');
 
   // ===== LINE MESSAGE (FORMAT สวย) =====
   const lineMessage =
-`🆔 Ticket ID : ${ticketId}
-📅 วันที่ : ${ticketDate}
+`🆔 Ticket ID : ${ticket_id || '-'}
+📅 วันที่ : ${ticketDate || '-'}
 
-📌 หัวข้อ : ${mainTitle}
-⚙️ อาการ : ${symptom}
+📌 หัวข้อ : ${title || '-'}
+⚙️ อาการ : ${symptom || '-'}
 
-🏬 สาขา : ${branchName}
-🏷️ รหัสสาขา : ${branchCode}
+🏬 สาขา : ${branch || '-'}
+🏷️ รหัสสาขา : ${branch_code || '-'}
 
 📞 Phone : ${phone || '-'}
 📊 Status : ${status || '-'}`;
