@@ -8,12 +8,12 @@ app.use(express.json());
 // ===============================
 // CONFIG
 // ===============================
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // LINE
 const LINE_PUSH_URL = 'https://api.line.me/v2/bot/message/push';
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const LINE_USER_ID = 'U70a054e1c503d6195eb0417e5422011e';
+const LINE_USER_ID = process.env.LINE_USER_ID;
 
 // ===============================
 // HEALTH CHECK
@@ -28,15 +28,15 @@ app.get('/', (req, res) => {
 app.post('/lark/webhook', async (req, res) => {
   const body = req.body;
 
-  // ✅ สำหรับ Lark verify URL
-  if (body.type === 'url_verification' && body.challenge) {
+  // ===== Lark URL verification =====
+  if (body?.type === 'url_verification' && body?.challenge) {
     return res.json({ challenge: body.challenge });
   }
 
   console.log('\n📨 LARK WEBHOOK RECEIVED');
   console.log(JSON.stringify(body, null, 2));
 
-  // ===== ดึงข้อมูลจาก Lark Automation =====
+  // ===== ดึงข้อมูลจาก Lark =====
   const {
     ticket_id,
     title,
@@ -45,23 +45,42 @@ app.post('/lark/webhook', async (req, res) => {
     status
   } = body || {};
 
-  // ===== แสดงผล CMD (ตามที่ต้องการ) =====
+  // ===== แยกข้อมูล (ตาม format เดิมของคุณ) =====
+  // ticket_id: Ticket-046/2026/02/05 14:23
+  const ticketId = ticket_id?.split('/')[0] || '-';
+  const ticketDate = ticket_id?.split('/').slice(1).join('/') || '-';
+
+  // title: อินเตอร์เน็ต/ทดสอบอาการ
+  const [mainTitle, symptom] = title?.split('/') || ['-', '-'];
+
+  // branch: ABP/0002
+  const [branchName, branchCode] = branch?.split('/') || ['-', '-'];
+
+  // ===== LOG ใน server =====
   console.log('\n🎫 NEW TICKET');
-  console.log(`🆔 Ticket ID : ${ticket_id || '-'}`);
-  console.log(`📌 Title     : ${title || '-'}`);
-  console.log(`🏬 Branch    : ${branch || '-'}`);
+  console.log(`🆔 Ticket ID : ${ticketId}`);
+  console.log(`📅 Date      : ${ticketDate}`);
+  console.log(`📌 Title     : ${mainTitle}`);
+  console.log(`⚙️ Symptom   : ${symptom}`);
+  console.log(`🏬 Branch    : ${branchName}`);
+  console.log(`🏷️ Code      : ${branchCode}`);
   console.log(`📞 Phone     : ${phone || '-'}`);
   console.log(`📊 Status    : ${status || '-'}`);
   console.log('');
 
-  // ===== ข้อความส่งเข้า LINE =====
+  // ===== LINE MESSAGE (FORMAT สวย) =====
   const lineMessage =
-`🎫 NEW TICKET
-🆔 Ticket ID : ${ticket_id || '-'}
-📌 Title     : ${title || '-'}
-🏬 Branch    : ${branch || '-'}
-📞 Phone     : ${phone || '-'}
-📊 Status    : ${status || '-'}`;
+`🆔 Ticket ID : ${ticketId}
+📅 วันที่ : ${ticketDate}
+
+📌 หัวข้อ : ${mainTitle}
+⚙️ อาการ : ${symptom}
+
+🏬 สาขา : ${branchName}
+🏷️ รหัสสาขา : ${branchCode}
+
+📞 Phone : ${phone || '-'}
+📊 Status : ${status || '-'}`;
 
   // ===== PUSH เข้า LINE =====
   try {
