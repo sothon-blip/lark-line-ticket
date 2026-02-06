@@ -63,7 +63,7 @@ app.post('/line/webhook', async (req, res) => {
     const text       = event.message.text;
     const replyToken = event.replyToken;
 
-    console.log('\n💬 LINE MESSAGE RECEIVED');
+    console.log('💬 LINE MESSAGE RECEIVED');
     console.log(`👤 User ID  : ${userId}`);
     console.log(`👥 Group ID : ${groupId}`);
     console.log(`✉️ Message  : ${text}`);
