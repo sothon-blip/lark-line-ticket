@@ -12,7 +12,7 @@ const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_PUSH_URL  = 'https://api.line.me/v2/bot/message/push';
 const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
 
-// ================= HELPER =================
+// ================= LINE HELPERS =================
 const lineHeaders = {
   Authorization: `Bearer ${LINE_TOKEN}`,
   'Content-Type': 'application/json'
@@ -35,11 +35,13 @@ async function linePush(to, text) {
 }
 
 // ================= HEALTH =================
-app.get('/', (_, res) => res.status(200).send('SERVER OK'));
+app.get('/', (_, res) => {
+  res.status(200).send('SERVER OK');
+});
 
 
 // ======================================================
-// 1) LINE WEBHOOK (User ส่งข้อความ)
+// 1) LINE WEBHOOK (User ส่งข้อความเข้า LINE)
 // ======================================================
 app.post('/line/webhook', async (req, res) => {
   res.status(200).json({ ok: true });
@@ -47,16 +49,17 @@ app.post('/line/webhook', async (req, res) => {
   const events = req.body.events || [];
 
   for (const event of events) {
-    if (event.type !== 'message' || event.message.type !== 'text') continue;
+    if (event.type !== 'message') continue;
+    if (event.message.type !== 'text') continue;
 
-    const userId  = event.source.userId;
-    const groupId = event.source.groupId || '-';
-    const text    = event.message.text;
+    const userId     = event.source.userId;
+    const groupId    = event.source.groupId || null;
+    const text       = event.message.text;
     const replyToken = event.replyToken;
 
     console.log('\n💬 LINE MESSAGE RECEIVED');
     console.log(`👤 User ID  : ${userId}`);
-    console.log(`👥 Group ID : ${groupId}`);
+    console.log(`👥 Group ID : ${groupId || '-'}`);
     console.log(`✉️ Message  : ${text}`);
 
     const replyText =
@@ -64,7 +67,7 @@ app.post('/line/webhook', async (req, res) => {
 ${text}
 
 👤 User ID : ${userId}
-👥 Group ID : ${groupId}`;
+${groupId ? 👥 Group ID : ${groupId} : ''}`;
 
     try {
       await lineReply(replyToken, replyText);
@@ -77,7 +80,7 @@ ${text}
 
 
 // ======================================================
-// 2) LARK WEBHOOK (Ticket + Daily report)
+// 2) LARK WEBHOOK (Ticket + Daily Report)
 // ======================================================
 app.post('/lark/webhook', async (req, res) => {
   res.status(200).json({ ok: true });
@@ -87,7 +90,9 @@ app.post('/lark/webhook', async (req, res) => {
   console.log('\n📥 LARK WEBHOOK RECEIVED');
   console.log(JSON.stringify(body, null, 2));
 
-  // ---------- DAILY REPORT ----------
+  // ==================================================
+  // DAILY REPORT
+  // ==================================================
   if (body.type === 'daily_report') {
     const {
       time,
@@ -125,8 +130,10 @@ app.post('/lark/webhook', async (req, res) => {
     return;
   }
 
-  // ---------- TICKET ----------
-  if (body.type === 'ticket') {
+  // ==================================================
+  // TICKET (รองรับ Ticket-xxx)
+  // ==================================================
+  if (typeof body.type === 'string' && body.type.startsWith('Ticket-')) {
     const {
       ticket_id,
       ticketDate,
@@ -181,6 +188,7 @@ app.post('/lark/webhook', async (req, res) => {
 
   console.warn('⚠️ UNKNOWN LARK PAYLOAD TYPE');
 });
+
 
 // ================= START =================
 app.listen(PORT, () => {
