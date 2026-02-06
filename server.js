@@ -67,7 +67,7 @@ app.post('/line/webhook', async (req, res) => {
 ${text}
 
 👤 User ID : ${userId}
-${groupId ? `👥 Group ID : ${groupId}` : ''}`;
+${groupId ? 👥 Group ID : ${groupId} : ''}`;
 
     try {
       await lineReply(replyToken, replyText);
@@ -91,28 +91,22 @@ app.post('/lark/webhook', async (req, res) => {
   console.log(JSON.stringify(body, null, 2));
 
   // ==================================================
-  // DAILY REPORT
+  // DAILY REPORT (รองรับหลาย target)
   // ==================================================
   if (body.type === 'daily_report') {
     const {
       time,
       pending_count,
       inprogress_count,
-      line_user_id,
-      line_group_id
+      line_targets   // <<<<<< ใช้ array
     } = body;
 
-    const target = line_user_id || line_group_id;
-    if (!target) {
-      console.error('❌ DAILY REPORT: no LINE target');
+    const targets = Array.isArray(line_targets) ? line_targets : [];
+
+    if (targets.length === 0) {
+      console.error('❌ DAILY REPORT: no LINE targets');
       return;
     }
-
-    console.log('\n📊 DAILY REPORT');
-    console.log(`⏰ Time        : ${time}`);
-    console.log(`🟡 Pending    : ${pending_count}`);
-    console.log(`🔵 InProgress : ${inprogress_count}`);
-    console.log(`🎯 Send to    : ${target}`);
 
     const msg =
 `📋 รายงานงานคงเหลือ
@@ -121,17 +115,22 @@ app.post('/lark/webhook', async (req, res) => {
 🟡 รอดำเนินการ : ${pending_count}
 🔵 อยู่ระหว่างดำเนินการ : ${inprogress_count}`;
 
-    try {
-      await linePush(target, msg);
-      console.log('✅ DAILY REPORT SENT');
-    } catch (err) {
-      console.error('❌ DAILY REPORT ERROR', err.response?.data || err.message);
+    console.log('\n📊 DAILY REPORT');
+    console.log(`🎯 Targets : ${targets.join(', ')}`);
+
+    for (const target of targets) {
+      try {
+        await linePush(target.trim(), msg);
+        console.log(`✅ DAILY REPORT SENT → ${target}`);
+      } catch (err) {
+        console.error(`❌ DAILY REPORT ERROR → ${target}`, err.response?.data || err.message);
+      }
     }
     return;
   }
 
   // ==================================================
-  // TICKET (รองรับ Ticket-xxx)
+  // TICKET (รองรับ Ticket-xxx + หลาย target)
   // ==================================================
   if (typeof body.type === 'string' && body.type.startsWith('Ticket-')) {
     const {
@@ -143,26 +142,20 @@ app.post('/lark/webhook', async (req, res) => {
       branch_code,
       phone,
       status,
-      line_user_id,
-      line_group_id
+      line_targets   // <<<<<< ใช้ array
     } = body;
 
-    const target = line_user_id || line_group_id;
-    if (!target) {
-      console.error('❌ TICKET: no LINE target');
+    const targets = Array.isArray(line_targets) ? line_targets : [];
+
+    if (targets.length === 0) {
+      console.error('❌ TICKET: no LINE targets');
       return;
     }
 
     console.log('\n🎫 NEW TICKET');
     console.log(`🆔 ${ticket_id}`);
-    console.log(`📅 ${ticketDate}`);
-    console.log(`📌 ${title}`);
-    console.log(`⚙️ ${symptom}`);
-    console.log(`🏬 ${branch}`);
-    console.log(`🏷️ ${branch_code}`);
-    console.log(`📞 ${phone}`);
-    console.log(`📊 ${status}`);
-    console.log(`🎯 Send to ${target}`);
+    console.log(`📊 Status : ${status}`);
+    console.log(`🎯 Targets : ${targets.join(', ')}`);
 
     const msg =
 `🆔 Ticket ID : ${ticket_id}
@@ -177,11 +170,13 @@ app.post('/lark/webhook', async (req, res) => {
 📞 Phone : ${phone}
 📊 Status : ${status}`;
 
-    try {
-      await linePush(target, msg);
-      console.log('✅ TICKET SENT');
-    } catch (err) {
-      console.error('❌ TICKET ERROR', err.response?.data || err.message);
+    for (const target of targets) {
+      try {
+        await linePush(target.trim(), msg);
+        console.log(`✅ TICKET SENT → ${target}`);
+      } catch (err) {
+        console.error(`❌ TICKET ERROR → ${target}`, err.response?.data || err.message);
+      }
     }
     return;
   }
