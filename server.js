@@ -5,35 +5,78 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// ===============================
-// CONFIG
-// ===============================
+// ================= CONFIG =================
 const PORT = process.env.PORT || 3000;
 const LINE_PUSH_URL = 'https://api.line.me/v2/bot/message/push';
+const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
-// ===============================
-// HEALTH CHECK
-// ===============================
-app.get('/', (req, res) => {
-  res.status(200).send('SERVER OK');
-});
+// ================= HELPER =================
+async function pushLine(to, text) {
+  return axios.post(
+    LINE_PUSH_URL,
+    { to, messages: [{ type: 'text', text }] },
+    { headers: { Authorization: `Bearer ${LINE_TOKEN}` } }
+  );
+}
 
-// ===============================
-// LARK WEBHOOK
-// ===============================
+async function replyLine(replyToken, text) {
+  return axios.post(
+    LINE_REPLY_URL,
+    { replyToken, messages: [{ type: 'text', text }] },
+    { headers: { Authorization: `Bearer ${LINE_TOKEN}` } }
+  );
+}
+
+// ================= HEALTH =================
+app.get('/', (_, res) => res.status(200).send('SERVER OK'));
+
+// ================= WEBHOOK =================
 app.post('/lark/webhook', async (req, res) => {
   const body = req.body || {};
-
-  // ⚠️ สำคัญมาก: ตอบ 200 ทันที กัน Lark retry
-  res.status(200).json({ ok: true });
-
   console.log('\n📥 WEBHOOK RECEIVED');
   console.log(JSON.stringify(body, null, 2));
 
-  // ======================================================
-  // 1️⃣ DAILY REPORT (Trigger ตามเวลา)
-  // ======================================================
+  // ตอบ 200 ทันที กัน retry / timeout
+  res.status(200).json({ ok: true });
+
+  // =====================================================
+  // 1) LINE USER MESSAGE
+  // =====================================================
+  if (body.type === 'line_event') {
+    const {
+      replyToken,
+      message,
+      user_id,
+      group_id,
+      user_name
+    } = body;
+
+    console.log('\n💬 LINE MESSAGE');
+    console.log(`👤 User ID  : ${user_id}`);
+    console.log(`👥 Group ID : ${group_id || '-'}`);
+    console.log(`✉️ Message  : ${message}`);
+
+    const replyText =
+`📨 ข้อความของคุณคือ:
+${message}
+
+👤 User ID : ${user_id}
+👤 User Name : ${user_name || 'Unknown'}
+👥 Group ID : ${group_id || '-'}`;
+
+    try {
+      await replyLine(replyToken, replyText);
+      console.log('✅ LINE REPLY SENT');
+    } catch (e) {
+      console.error('❌ LINE REPLY ERROR', e.response?.data || e.message);
+    }
+    return;
+  }
+
+  // =====================================================
+  // 2) DAILY REPORT (จาก Lark Trigger)
+  // =====================================================
   if (body.type === 'daily_report') {
     const {
       time,
@@ -43,26 +86,19 @@ app.post('/lark/webhook', async (req, res) => {
       line_group_id
     } = body;
 
-    const target =
-      line_user_id?.trim()
-        ? line_user_id
-        : line_group_id?.trim()
-        ? line_group_id
-        : null;
-
+    const target = line_user_id || line_group_id;
     if (!target) {
-      console.error('❌ DAILY REPORT: no LINE target');
+      console.error('❌ DAILY REPORT: no target');
       return;
     }
 
     console.log('\n📊 DAILY REPORT');
     console.log(`⏰ Time        : ${time}`);
-    console.log(`🟡 Pending     : ${pending_count}`);
-    console.log(`🔵 In Progress : ${inprogress_count}`);
-    console.log(`🎯 LINE TO     : ${target}`);
-    console.log('--------------------------------');
+    console.log(`🟡 Pending    : ${pending_count}`);
+    console.log(`🔵 InProgress : ${inprogress_count}`);
+    console.log(`🎯 Send to    : ${target}`);
 
-    const reportMessage =
+    const msg =
 `📋 รายงานงานคงเหลือ
 ⏰ รอบเวลา : ${time}
 
@@ -70,33 +106,17 @@ app.post('/lark/webhook', async (req, res) => {
 🔵 อยู่ระหว่างดำเนินการ : ${inprogress_count}`;
 
     try {
-      await axios.post(
-        LINE_PUSH_URL,
-        {
-          to: target,
-          messages: [
-            { type: 'text', text: reportMessage }
-          ]
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${LINE_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      await pushLine(target, msg);
       console.log('✅ DAILY REPORT SENT');
-    } catch (err) {
-      console.error('❌ DAILY REPORT ERROR');
-      console.error(err.response?.data || err.message);
+    } catch (e) {
+      console.error('❌ DAILY REPORT ERROR', e.response?.data || e.message);
     }
-
     return;
   }
 
-  // ======================================================
-  // 2️⃣ TICKET NOTIFY (งานใหม่ / เปลี่ยนสถานะ)
-  // ======================================================
+  // =====================================================
+  // 3) TICKET NOTIFY
+  // =====================================================
   if (body.type === 'ticket') {
     const {
       ticket_id,
@@ -111,31 +131,24 @@ app.post('/lark/webhook', async (req, res) => {
       line_group_id
     } = body;
 
-    const target =
-      line_user_id?.trim()
-        ? line_user_id
-        : line_group_id?.trim()
-        ? line_group_id
-        : null;
-
+    const target = line_user_id || line_group_id;
     if (!target) {
-      console.error('❌ TICKET: no LINE target');
+      console.error('❌ TICKET: no target');
       return;
     }
 
     console.log('\n🎫 NEW TICKET');
-    console.log(`🆔 Ticket ID : ${ticket_id}`);
-    console.log(`📅 Date      : ${ticketDate}`);
-    console.log(`📌 Title     : ${title}`);
-    console.log(`⚙️ Symptom   : ${symptom}`);
-    console.log(`🏬 Branch    : ${branch}`);
-    console.log(`🏷️ Code      : ${branch_code}`);
-    console.log(`📞 Phone     : ${phone}`);
-    console.log(`📊 Status    : ${status}`);
-    console.log(`🎯 LINE TO   : ${target}`);
-    console.log('--------------------------------');
+    console.log(`🆔 ${ticket_id}`);
+    console.log(`📅 ${ticketDate}`);
+    console.log(`📌 ${title}`);
+    console.log(`⚙️ ${symptom}`);
+    console.log(`🏬 ${branch}`);
+    console.log(`🏷️ ${branch_code}`);
+    console.log(`📞 ${phone}`);
+    console.log(`📊 ${status}`);
+    console.log(`🎯 Send to ${target}`);
 
-    const ticketMessage =
+    const msg =
 `🆔 Ticket ID : ${ticket_id}
 📅 วันที่ : ${ticketDate}
 
@@ -149,39 +162,18 @@ app.post('/lark/webhook', async (req, res) => {
 📊 Status : ${status}`;
 
     try {
-      await axios.post(
-        LINE_PUSH_URL,
-        {
-          to: target,
-          messages: [
-            { type: 'text', text: ticketMessage }
-          ]
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${LINE_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      console.log('✅ TICKET PUSH SENT');
-    } catch (err) {
-      console.error('❌ TICKET PUSH ERROR');
-      console.error(err.response?.data || err.message);
+      await pushLine(target, msg);
+      console.log('✅ TICKET SENT');
+    } catch (e) {
+      console.error('❌ TICKET ERROR', e.response?.data || e.message);
     }
-
     return;
   }
 
-  // ======================================================
-  // 3️⃣ UNKNOWN PAYLOAD
-  // ======================================================
   console.warn('⚠️ UNKNOWN PAYLOAD TYPE');
 });
 
-// ===============================
-// START SERVER
-// ===============================
+// ================= START =================
 app.listen(PORT, () => {
   console.log(`🚀 SERVER STARTED : PORT ${PORT}`);
 });
