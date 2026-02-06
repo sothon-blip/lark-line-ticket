@@ -67,7 +67,7 @@ app.post('/line/webhook', async (req, res) => {
 ${text}
 
 👤 User ID : ${userId}
-${groupId ? 👥 Group ID : ${groupId} : ''}`;
+${groupId ? `👥 Group ID : ${groupId}` : ''}`;
 
     try {
       await lineReply(replyToken, replyText);
