@@ -7,76 +7,87 @@ app.use(express.json());
 
 // ================= CONFIG =================
 const PORT = process.env.PORT || 3000;
-const LINE_PUSH_URL = 'https://api.line.me/v2/bot/message/push';
-const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
-// ================= HELPER =================
-async function pushLine(to, text) {
-  return axios.post(
-    LINE_PUSH_URL,
-    { to, messages: [{ type: 'text', text }] },
-    { headers: { Authorization: `Bearer ${LINE_TOKEN}` } }
-  );
-}
+const LINE_PUSH_URL  = 'https://api.line.me/v2/bot/message/push';
+const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
 
-async function replyLine(replyToken, text) {
+// ================= HELPER =================
+const lineHeaders = {
+  Authorization: `Bearer ${LINE_TOKEN}`,
+  'Content-Type': 'application/json'
+};
+
+async function lineReply(replyToken, text) {
   return axios.post(
     LINE_REPLY_URL,
     { replyToken, messages: [{ type: 'text', text }] },
-    { headers: { Authorization: `Bearer ${LINE_TOKEN}` } }
+    { headers: lineHeaders }
+  );
+}
+
+async function linePush(to, text) {
+  return axios.post(
+    LINE_PUSH_URL,
+    { to, messages: [{ type: 'text', text }] },
+    { headers: lineHeaders }
   );
 }
 
 // ================= HEALTH =================
 app.get('/', (_, res) => res.status(200).send('SERVER OK'));
 
-// ================= WEBHOOK =================
-app.post('/lark/webhook', async (req, res) => {
-  const body = req.body || {};
-  console.log('\n📥 WEBHOOK RECEIVED');
-  console.log(JSON.stringify(body, null, 2));
 
-  // ตอบ 200 ทันที กัน retry / timeout
+// ======================================================
+// 1) LINE WEBHOOK (User ส่งข้อความ)
+// ======================================================
+app.post('/line/webhook', async (req, res) => {
   res.status(200).json({ ok: true });
 
-  // =====================================================
-  // 1) LINE USER MESSAGE
-  // =====================================================
-  if (body.type === 'line_event') {
-    const {
-      replyToken,
-      message,
-      user_id,
-      group_id,
-      user_name
-    } = body;
+  const events = req.body.events || [];
 
-    console.log('\n💬 LINE MESSAGE');
-    console.log(`👤 User ID  : ${user_id}`);
-    console.log(`👥 Group ID : ${group_id || '-'}`);
-    console.log(`✉️ Message  : ${message}`);
+  for (const event of events) {
+    if (event.type !== 'message' || event.message.type !== 'text') continue;
+
+    const userId  = event.source.userId;
+    const groupId = event.source.groupId || '-';
+    const text    = event.message.text;
+    const replyToken = event.replyToken;
+
+    console.log('\n💬 LINE MESSAGE RECEIVED');
+    console.log(`👤 User ID  : ${userId}`);
+    console.log(`👥 Group ID : ${groupId}`);
+    console.log(`✉️ Message  : ${text}`);
 
     const replyText =
 `📨 ข้อความของคุณคือ:
-${message}
+${text}
 
-👤 User ID : ${user_id}
-👤 User Name : ${user_name || 'Unknown'}
-👥 Group ID : ${group_id || '-'}`;
+👤 User ID : ${userId}
+👥 Group ID : ${groupId}`;
 
     try {
-      await replyLine(replyToken, replyText);
+      await lineReply(replyToken, replyText);
       console.log('✅ LINE REPLY SENT');
-    } catch (e) {
-      console.error('❌ LINE REPLY ERROR', e.response?.data || e.message);
+    } catch (err) {
+      console.error('❌ LINE REPLY ERROR', err.response?.data || err.message);
     }
-    return;
   }
+});
 
-  // =====================================================
-  // 2) DAILY REPORT (จาก Lark Trigger)
-  // =====================================================
+
+// ======================================================
+// 2) LARK WEBHOOK (Ticket + Daily report)
+// ======================================================
+app.post('/lark/webhook', async (req, res) => {
+  res.status(200).json({ ok: true });
+
+  const body = req.body || {};
+
+  console.log('\n📥 LARK WEBHOOK RECEIVED');
+  console.log(JSON.stringify(body, null, 2));
+
+  // ---------- DAILY REPORT ----------
   if (body.type === 'daily_report') {
     const {
       time,
@@ -88,7 +99,7 @@ ${message}
 
     const target = line_user_id || line_group_id;
     if (!target) {
-      console.error('❌ DAILY REPORT: no target');
+      console.error('❌ DAILY REPORT: no LINE target');
       return;
     }
 
@@ -106,17 +117,15 @@ ${message}
 🔵 อยู่ระหว่างดำเนินการ : ${inprogress_count}`;
 
     try {
-      await pushLine(target, msg);
+      await linePush(target, msg);
       console.log('✅ DAILY REPORT SENT');
-    } catch (e) {
-      console.error('❌ DAILY REPORT ERROR', e.response?.data || e.message);
+    } catch (err) {
+      console.error('❌ DAILY REPORT ERROR', err.response?.data || err.message);
     }
     return;
   }
 
-  // =====================================================
-  // 3) TICKET NOTIFY
-  // =====================================================
+  // ---------- TICKET ----------
   if (body.type === 'ticket') {
     const {
       ticket_id,
@@ -133,7 +142,7 @@ ${message}
 
     const target = line_user_id || line_group_id;
     if (!target) {
-      console.error('❌ TICKET: no target');
+      console.error('❌ TICKET: no LINE target');
       return;
     }
 
@@ -162,15 +171,15 @@ ${message}
 📊 Status : ${status}`;
 
     try {
-      await pushLine(target, msg);
+      await linePush(target, msg);
       console.log('✅ TICKET SENT');
-    } catch (e) {
-      console.error('❌ TICKET ERROR', e.response?.data || e.message);
+    } catch (err) {
+      console.error('❌ TICKET ERROR', err.response?.data || err.message);
     }
     return;
   }
 
-  console.warn('⚠️ UNKNOWN PAYLOAD TYPE');
+  console.warn('⚠️ UNKNOWN LARK PAYLOAD TYPE');
 });
 
 // ================= START =================
